@@ -1050,6 +1050,7 @@ class PyMCStateSpace:
             obs_coords=obs_coords,
             register_data=register_data,
             missing_fill_value=missing_fill_value,
+            data_name=self._prefix_name("data"),
         )
 
         filter_outputs = self.kalman_filter.build_graph(
@@ -1238,6 +1239,7 @@ class PyMCStateSpace:
             obs_coords=obs_coords,
             data_dims=data_dims,
             register_data=True,
+            data_name=self._prefix_name("data"),
         )
 
         filter_outputs = self.kalman_filter.build_graph(
@@ -1892,6 +1894,7 @@ class PyMCStateSpace:
                 n_obs=self.ssm.k_endog,
                 obs_coords=obs_coords,
                 register_data=True,
+                data_name=self._prefix_name("data"),
             )
 
             filter_outputs = self.kalman_filter.build_graph(

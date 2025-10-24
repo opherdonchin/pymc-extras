@@ -46,6 +46,13 @@ Added an optional `name` parameter to `PyMCStateSpace.__init__()`. When provided
      - `forecast`: prefixes "forecast_latent", "forecast_observed", etc.
      - `impulse_response_function`: prefixes "irf", "x0_new", "initial_shock", etc.
 
+### 7. **Data Variables** (`register_data_with_pymc`, `add_data_to_active_model`)
+   - Added `data_name` parameter to `register_data_with_pymc` function
+   - Added `name` parameter to `add_data_to_active_model` function  
+   - Updated all calls to `register_data_with_pymc` in `build_statespace_graph` and sampling methods to use prefixed data names
+   - Data variable is now named `{model_name}_data` instead of just `"data"` when model has a name
+   - Prevents naming conflicts when multiple state space models are used in the same PyMC model
+
 ## Usage Example
 
 ```python

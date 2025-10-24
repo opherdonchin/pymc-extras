@@ -140,6 +140,26 @@ with pm.Model() as mod:
     # Access it via: mod["series1_obs"]
 ```
 
+### Data Variables
+
+The data variable is also prefixed to avoid conflicts when using multiple models:
+
+```python
+model1 = BayesianSARIMA(order=(1, 0, 1), name="model1")
+model2 = BayesianSARIMA(order=(1, 0, 1), name="model2")
+
+with pm.Model() as mod:
+    # ... define parameters for both models ...
+    
+    model1.build_statespace_graph(data1)
+    # Creates "model1_data" in the PyMC model
+    
+    model2.build_statespace_graph(data2)
+    # Creates "model2_data" in the PyMC model
+    
+    # No naming conflicts!
+```
+
 ### Output Variables in Sampling Methods
 
 All output variables from sampling methods are also prefixed:
