@@ -22,9 +22,13 @@ Added an optional `name` parameter to `PyMCStateSpace.__init__()`. When provided
    - Created new method to prefix variable names when `self.name` is set
    - Returns unprefixed name if `self.name` is None (backward compatible)
 
-### 3. **Variable Registration** (`make_and_register_variable`, `make_and_register_data`)
+### 3. **Variable Registration** (`make_and_register_variable`, `make_and_register_data`, `register_variable`)
    - Updated documentation to note that prefixing happens during lookup
    - Internal storage uses unprefixed names as keys
+   - Added new `register_variable()` method for registering pre-existing variables (not symbolic placeholders)
+     - Used when variables are passed to the model constructor
+     - Validates that variable name is in `param_names`
+     - Stores in `_name_to_variable` with unprefixed key
 
 ### 4. **Variable Insertion** (`_insert_random_variables`, `_insert_data_variables`)
    - Modified to use prefixed names when looking up variables in PyMC model

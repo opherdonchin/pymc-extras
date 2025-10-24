@@ -522,6 +522,53 @@ class PyMCStateSpace:
             "The add_default_priors property has not been implemented!"
         )
 
+    def register_variable(self, name: str, variable: pt.TensorVariable) -> None:
+        """
+        Register an existing pytensor variable in the _name_to_variable dictionary
+
+        Parameters
+        ----------
+        name : str
+            The name of the variable. Must be the name of a model parameter.
+        variable : pytensor.TensorVariable
+            The pytensor variable to register. This should be an existing variable, not a symbolic placeholder.
+
+        Notes
+        -----
+        This method is used to register pre-existing pytensor variables (e.g., those passed to the model constructor)
+        in the internal ``_name_to_variable`` dictionary. This is different from ``make_and_register_variable``, which
+        creates new symbolic placeholders.
+
+        The registered variable will be used in the ``_insert_random_variables`` method via ``pytensor.graph_replace``
+        to substitute the variable into the computational graph.
+
+        An error is raised if the provided name has already been registered, or if the name is not present in the
+        ``param_names`` property.
+
+        Examples
+        --------
+        >>> class MyModel(PyMCStateSpace):
+        ...     def __init__(self, A, B, name=None):
+        ...         super().__init__(k_states=1, k_posdef=1, name=name)
+        ...         self.A = A
+        ...         self.B = B
+        ...         self.register_variable("A", self.A)
+        ...         self.register_variable("B", self.B)
+        """
+        if name not in self.param_names:
+            raise ValueError(
+                f"{name} is not a model parameter. Valid parameter names are: {self.param_names}"
+            )
+
+        if name in self._name_to_variable.keys():
+            raise ValueError(
+                f"{name} is already a registered variable with shape "
+                f"{self._name_to_variable[name].type.shape}"
+            )
+
+        # Store with the unprefixed name as the key - prefixing happens when looking up in PyMC model
+        self._name_to_variable[name] = variable
+
     def make_and_register_variable(
         self, name, shape: int | tuple[int, ...] | None = None, dtype=floatX
     ) -> pt.TensorVariable:
