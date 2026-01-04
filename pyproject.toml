@@ -53,6 +53,7 @@ dev = [
   "dask[all]<2025.1.1",
   "blackjax",
   "statsmodels",
+  "graphviz",
 ]
 docs = [
   "nbsphinx>=0.4.2",
@@ -106,6 +107,9 @@ filterwarnings =[
 
     # Preliz needs to update for pytensor > 2.35
    'ignore:.*`pytensor\.graph\.basic\.ancestors`.*`pytensor\.graph\.traversal\.ancestors`.*:FutureWarning:^preliz(\.|$)',
+
+    # PyTensor scan API change
+    'ignore:Scan return signature will change.*:DeprecationWarning',
 
     # OpenMP library warning on windows CI
   'ignore::RuntimeWarning:threadpoolctl'

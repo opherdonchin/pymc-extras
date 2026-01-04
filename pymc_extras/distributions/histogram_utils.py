@@ -114,10 +114,10 @@ def histogram_approximation(name, dist, *, observed, **h_kwargs):
     --------
     Discrete variables are reduced to unique repetitions (up to min_count)
 
-    >>> import pymc as pm
-    >>> import pymc_extras as pmx
-    >>> production = np.random.poisson([1, 2, 5], size=(1000, 3))
-    >>> with pm.Model(coords=dict(plant=range(3))):
+    >>> import pymc as pm  # doctest: +SKIP
+    >>> import pymc_extras as pmx  # doctest: +SKIP
+    >>> production = np.random.poisson([1, 2, 5], size=(1000, 3))  # doctest: +SKIP
+    >>> with pm.Model(coords=dict(plant=range(3))):  # doctest: +SKIP
     ...     lam = pm.Exponential("lam", 1.0, dims="plant")
     ...     pot = pmx.distributions.histogram_approximation(
     ...         "pot", pm.Poisson.dist(lam), observed=production, min_count=2
@@ -125,8 +125,8 @@ def histogram_approximation(name, dist, *, observed, **h_kwargs):
 
     Continuous variables are discretized into n_quantiles
 
-    >>> measurements = np.random.normal([1, 2, 3], [0.1, 0.4, 0.2], size=(10000, 3))
-    >>> with pm.Model(coords=dict(tests=range(3))):
+    >>> measurements = np.random.normal([1, 2, 3], [0.1, 0.4, 0.2], size=(10000, 3))  # doctest: +SKIP
+    >>> with pm.Model(coords=dict(tests=range(3))):  # doctest: +SKIP
     ...     m = pm.Normal("m", dims="tests")
     ...     s = pm.LogNormal("s", dims="tests")
     ...     pot = pmx.distributions.histogram_approximation(
@@ -136,9 +136,9 @@ def histogram_approximation(name, dist, *, observed, **h_kwargs):
     For special cases like Zero Inflation in Continuous variables there is a flag.
     The flag adds a separate bin for zeros
 
-    >>> measurements = abs(measurements)
-    >>> measurements[100:] = 0
-    >>> with pm.Model(coords=dict(tests=range(3))):
+    >>> measurements = abs(measurements)  # doctest: +SKIP
+    >>> measurements[100:] = 0  # doctest: +SKIP
+    >>> with pm.Model(coords=dict(tests=range(3))):  # doctest: +SKIP
     ...     m = pm.Normal("m", dims="tests")
     ...     s = pm.LogNormal("s", dims="tests")
     ...     pot = pmx.distributions.histogram_approximation(

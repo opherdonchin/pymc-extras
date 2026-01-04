@@ -208,7 +208,7 @@ def multipathfinder_result_to_xarray(
     >>> import pymc_extras as pmx
     >>>
     >>> with pm.Model() as model:
-        ...     x = pm.Normal("x", 0, 1)
+    ...     x = pm.Normal("x", 0, 1)
     ...
     >>> # Assuming we have a MultiPathfinderResult from multiple pathfinder runs
     >>> ds = multipathfinder_result_to_xarray(result, model=model)

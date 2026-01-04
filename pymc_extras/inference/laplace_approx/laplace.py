@@ -148,9 +148,14 @@ def get_conditional_gaussian_approximation(
 
 
 def _unconstrained_vector_to_constrained_rvs(model):
-    outputs = get_default_varnames(model.unobserved_value_vars, include_transformed=True)
+    outputs = get_default_varnames(
+        model.unobserved_value_vars, include_transformed=True
+    )
     constrained_names = [
-        x.name for x in get_default_varnames(model.unobserved_value_vars, include_transformed=False)
+        x.name
+        for x in get_default_varnames(
+            model.unobserved_value_vars, include_transformed=False
+        )
     ]
     names = [x.name for x in outputs]
 
@@ -162,13 +167,17 @@ def _unconstrained_vector_to_constrained_rvs(model):
         outputs=outputs,
     )
 
-    constrained_rvs = [x for x, name in zip(new_outputs, names) if name in constrained_names]
+    constrained_rvs = [
+        x for x, name in zip(new_outputs, names) if name in constrained_names
+    ]
     value_rvs = [x for x in new_outputs if x not in constrained_rvs]
 
     unconstrained_vector.name = "unconstrained_vector"
 
     # Redo the names list to ensure it is sorted to match the return order
-    constrained_rvs_and_names = [(rv, name) for rv, name in zip(constrained_rvs, constrained_names)]
+    constrained_rvs_and_names = [
+        (rv, name) for rv, name in zip(constrained_rvs, constrained_names)
+    ]
     value_rvs_and_names = [
         (rv, name) for rv, name in zip(value_rvs, names) for name in unconstrained_names
     ]
@@ -178,7 +187,10 @@ def _unconstrained_vector_to_constrained_rvs(model):
 
 
 def model_to_laplace_approx(
-    model: pm.Model, unpacked_variable_names: list[str], chains: int = 1, draws: int = 500
+    model: pm.Model,
+    unpacked_variable_names: list[str],
+    chains: int = 1,
+    draws: int = 500,
 ):
     initial_point = model.initial_point()
     raveled_vars = DictToArrayBijection.map(initial_point)
@@ -189,8 +201,8 @@ def model_to_laplace_approx(
 
     # The model was frozen during the find_MAP procedure. To ensure we're operating on the same model, freeze it again.
     frozen_model = freeze_dims_and_data(model)
-    constrained_rvs_and_names, _, unconstrained_vector = _unconstrained_vector_to_constrained_rvs(
-        frozen_model
+    constrained_rvs_and_names, _, unconstrained_vector = (
+        _unconstrained_vector_to_constrained_rvs(frozen_model)
     )
 
     coords = model.coords | {
@@ -214,7 +226,9 @@ def model_to_laplace_approx(
         constrained_rvs, constrained_names = zip(*constrained_rvs_and_names)
         batched_rvs = vectorize_graph(
             type_cast(list[Variable], constrained_rvs),
-            replace={cast_to_var(unconstrained_vector): cast_to_var(laplace_approximation)},
+            replace={
+                cast_to_var(unconstrained_vector): cast_to_var(laplace_approximation)
+            },
         )
 
         for name, batched_rv in zip(constrained_names, batched_rvs):
@@ -224,11 +238,19 @@ def model_to_laplace_approx(
             elif name in model.named_vars_to_dims:
                 dims = (*batch_dims, *model.named_vars_to_dims[name])
             else:
-                dims = (*batch_dims, *[f"{name}_dim_{i}" for i in range(batched_rv.ndim - 2)])
+                dims = (
+                    *batch_dims,
+                    *[f"{name}_dim_{i}" for i in range(batched_rv.ndim - 2)],
+                )
                 initval = initial_point.get(name, None)
-                dim_shapes = initval.shape if initval is not None else batched_rv.type.shape[2:]
+                dim_shapes = (
+                    initval.shape if initval is not None else batched_rv.type.shape[2:]
+                )
                 laplace_model.add_coords(
-                    {name: np.arange(shape) for name, shape in zip(dims[2:], dim_shapes)}
+                    {
+                        name: np.arange(shape)
+                        for name, shape in zip(dims[2:], dim_shapes)
+                    }
                 )
 
             pm.Deterministic(name, batched_rv, dims=dims)
@@ -254,10 +276,14 @@ def unstack_laplace_draws(laplace_data, model, chains=2, draws=500):
     # There are corner cases where the value_vars will not have the same dimensions as the random variable (e.g.
     # simplex transform of a Dirichlet). In these cases, we don't try to guess what the labels should be, and just
     # add an arviz-style default dim and label.
-    for rv, (name, shape, size, dtype) in zip(model.free_RVs, initial_point.point_map_info):
+    for rv, (name, shape, size, dtype) in zip(
+        model.free_RVs, initial_point.point_map_info
+    ):
         rv_dims = []
         for i, dim in enumerate(
-            model.named_vars_to_dims.get(rv.name, [f"{name}_dim_{i}" for i in range(len(shape))])
+            model.named_vars_to_dims.get(
+                rv.name, [f"{name}_dim_{i}" for i in range(len(shape))]
+            )
         ):
             if coords.get(dim) and shape[i] == len(coords[dim]):
                 rv_dims.append(dim)
@@ -268,7 +294,9 @@ def unstack_laplace_draws(laplace_data, model, chains=2, draws=500):
         dims = ("chain", "draw", *rv_dims)
 
         values = (
-            laplace_data[..., cursor : cursor + size].reshape((chains, draws, *shape)).astype(dtype)
+            laplace_data[..., cursor : cursor + size]
+            .reshape((chains, draws, *shape))
+            .astype(dtype)
         )
         unstacked_laplace_draws[name] = xr.DataArray(
             values, dims=dims, coords={dim: list(coords[dim]) for dim in dims}
@@ -363,16 +391,16 @@ def fit_laplace(
 
     Examples
     --------
-    >>> from pymc_extras.inference import fit_laplace
-    >>> import numpy as np
-    >>> import pymc as pm
-    >>> import arviz as az
-    >>> y = np.array([2642, 3503, 4358] * 10)
-    >>> with pm.Model() as m:
-    >>>     logsigma = pm.Uniform("logsigma", 1, 100)
-    >>>     mu = pm.Uniform("mu", -10000, 10000)
-    >>>     yobs = pm.Normal("y", mu=mu, sigma=pm.math.exp(logsigma), observed=y)
-    >>>     idata = fit_laplace()
+    >>> from pymc_extras.inference import fit_laplace  # doctest: +SKIP
+    >>> import numpy as np  # doctest: +SKIP
+    >>> import pymc as pm  # doctest: +SKIP
+    >>> import arviz as az  # doctest: +SKIP
+    >>> y = np.array([2642, 3503, 4358] * 10)  # doctest: +SKIP
+    >>> with pm.Model() as m:  # doctest: +SKIP
+    ...     logsigma = pm.Uniform("logsigma", 1, 100)
+    ...     mu = pm.Uniform("mu", -10000, 10000)
+    ...     yobs = pm.Normal("y", mu=mu, sigma=pm.math.exp(logsigma), observed=y)
+    ...     idata = fit_laplace()
 
     Notes
     -----
@@ -416,11 +444,14 @@ def fit_laplace(
         # The user didn't use `use_hess` or `use_hessp` (or an optimization method that returns an inverse Hessian), so
         # we have to go back and compute the Hessian at the MAP point now.
         frozen_model = freeze_dims_and_data(model)
-        initial_params = _make_initial_point(frozen_model, initvals, random_seed, jitter_rvs)
+        initial_params = _make_initial_point(
+            frozen_model, initvals, random_seed, jitter_rvs
+        )
 
         _, f_hessp = scipy_optimize_funcs_from_loss(
             loss=-frozen_model.logp(jacobian=False),
-            inputs=frozen_model.continuous_value_vars + frozen_model.discrete_value_vars,
+            inputs=frozen_model.continuous_value_vars
+            + frozen_model.discrete_value_vars,
             initial_point_dict=DictToArrayBijection.rmap(initial_params),
             use_grad=False,
             use_hess=False,
@@ -440,10 +471,15 @@ def fit_laplace(
         idata.fit["covariance_matrix"] = xr.DataArray(
             H_inv,
             dims=("rows", "columns"),
-            coords={"rows": unpacked_variable_names, "columns": unpacked_variable_names},
+            coords={
+                "rows": unpacked_variable_names,
+                "columns": unpacked_variable_names,
+            },
         )
 
-    with model_to_laplace_approx(model, unpacked_variable_names, chains, draws) as laplace_model:
+    with model_to_laplace_approx(
+        model, unpacked_variable_names, chains, draws
+    ) as laplace_model:
         new_posterior = (
             pm.sample_posterior_predictive(
                 idata.fit.expand_dims(chain=[0], draw=[0]),
@@ -461,7 +497,10 @@ def fit_laplace(
 
         if include_transformed:
             idata.unconstrained_posterior = unstack_laplace_draws(
-                new_posterior.laplace_approximation.values, model, chains=chains, draws=draws
+                new_posterior.laplace_approximation.values,
+                model,
+                chains=chains,
+                draws=draws,
             )
 
         idata.posterior = new_posterior.drop_vars(

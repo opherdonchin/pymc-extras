@@ -12,8 +12,12 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 import logging
+import warnings
 
 from importlib.metadata import version
+
+# Suppress ArviZ refactor warning that appears during import
+warnings.filterwarnings("ignore", category=FutureWarning, module="arviz")
 
 from pymc_extras import gp, statespace, utils
 from pymc_extras.distributions import *
