@@ -117,7 +117,7 @@ class StructuralTimeSeries(PyMCStateSpace):
     def __init__(
         self,
         ssm: PytensorRepresentation,
-        name: str,
+        name: str | None,
         coords_info: CoordInfo,
         param_info: ParameterInfo,
         data_info: DataInfo,
@@ -184,10 +184,31 @@ class StructuralTimeSeries(PyMCStateSpace):
             verbose=verbose,
             measurement_error=measurement_error,
             mode=mode,
+            name=name,
         )
 
-        self._tensor_variable_info = tensor_variable_info
-        self._tensor_data_info = tensor_data_info
+        if name is None:
+            self._tensor_variable_info = tensor_variable_info
+            self._tensor_data_info = tensor_data_info
+        else:
+            self._tensor_variable_info = SymbolicVariableInfo(
+                symbolic_variables=tuple(
+                    SymbolicVariable(
+                        name=self.prefixed_name(symbolic_variable.name),
+                        symbolic_variable=symbolic_variable.symbolic_variable,
+                    )
+                    for symbolic_variable in tensor_variable_info
+                )
+            )
+            self._tensor_data_info = SymbolicDataInfo(
+                symbolic_data=tuple(
+                    SymbolicData(
+                        name=self.prefixed_name(symbolic_data.name),
+                        symbolic_data=symbolic_data.symbolic_data,
+                    )
+                    for symbolic_data in tensor_data_info
+                )
+            )
         self._component_info = component_info.copy()
         self._exog_names = data_info.exogenous_names
         self._needs_exog_data = data_info.needs_exogenous_data

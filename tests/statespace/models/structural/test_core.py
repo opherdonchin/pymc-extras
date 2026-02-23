@@ -18,6 +18,42 @@ ATOL = 1e-8 if floatX.endswith("64") else 1e-4
 RTOL = 0 if floatX.endswith("64") else 1e-6
 
 
+def _build_named_structural_model(name: str):
+    return (
+        st.LevelTrend(order=1, innovations_order=1)
+        + st.Regression(name="reg", state_names=["x"])
+        + st.MeasurementError(name="obs")
+    ).build(name=name, verbose=False)
+
+
+def test_structural_name_propagates_to_base_and_scopes_p0():
+    ss_mod = _build_named_structural_model(name="m1")
+
+    assert ss_mod.name == "m1"
+    assert "P0" in ss_mod.param_names
+    assert ss_mod.prefixed_name("P0") in ss_mod._name_to_variable
+    assert "P0" not in ss_mod._name_to_variable
+
+
+def test_named_structural_models_do_not_collide_in_placeholder_registries():
+    with pm.Model():
+        m1 = _build_named_structural_model(name="m1")
+        m2 = _build_named_structural_model(name="m2")
+
+    var_keys_1 = set(m1._name_to_variable)
+    var_keys_2 = set(m2._name_to_variable)
+    data_keys_1 = set(m1._name_to_data)
+    data_keys_2 = set(m2._name_to_data)
+
+    assert var_keys_1.isdisjoint(var_keys_2)
+    assert data_keys_1.isdisjoint(data_keys_2)
+
+    assert var_keys_1 == {m1.prefixed_name(name) for name in m1.param_names}
+    assert var_keys_2 == {m2.prefixed_name(name) for name in m2.param_names}
+    assert data_keys_1 == {m1.prefixed_name(name) for name in m1.data_names}
+    assert data_keys_2 == {m2.prefixed_name(name) for name in m2.data_names}
+
+
 def test_add_components():
     ll = st.LevelTrend(order=2)
     se = st.TimeSeasonality(name="seasonal", season_length=12)
