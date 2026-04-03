@@ -2,6 +2,7 @@ from copy import deepcopy
 
 import numpy as np
 import pymc as pm
+import pytensor
 import pytensor.tensor as pt
 import pytest
 import xarray as xr
@@ -551,6 +552,26 @@ def test_equality_non_prior() -> None:
     dist = Prior("Normal")
 
     assert dist != 1
+
+
+def test_equality_data_array() -> None:
+    da1 = DataArray([1, 2], dims="x")
+    da2 = DataArray([1, 2], dims="x")
+    da3 = DataArray([1, 3], dims="x")
+    da4 = DataArray([1, 2], dims="y")
+
+    p1 = Prior("Normal", mu=da1)
+    p2 = Prior("Normal", mu=da2)
+    p3 = Prior("Normal", mu=da3)
+    p4 = Prior("Normal", mu=da4)
+    p5 = Prior("StudentT", mu=da1)
+    p6 = Prior("Normal", mu=np.array([1, 2]))
+
+    assert p1 == p2
+    assert p1 != p3
+    assert p1 != p4
+    assert p1 != p5
+    assert p1 != p6
 
 
 def test_deepcopy_memo() -> None:
@@ -1173,6 +1194,40 @@ class TestCensored:
 
         DESERIALIZERS.pop()
 
+    @pytest.mark.filterwarnings(
+        "ignore:The `pymc.dims` module is experimental and may contain critical bugs"
+    )
+    def test_censored_xdist(self):
+        import pymc.dims as pmd
+
+        coords = {
+            "batch": range(2),
+            "city": range(3),
+        }
+        dims = tuple(coords.keys())
+        observed = pmd.as_xtensor(np.ones((2, 3)), dims=dims)
+        mu = pmd.as_xtensor([1, 2, 3], dims=("city",))
+
+        censored_with_mu = Censored(Prior("Normal", mu=mu, dims=dims), lower=0)
+        censored_without_mu = Censored(Prior("Normal", dims=dims), lower=0)
+
+        res = censored_with_mu.sample_prior(draws=7, coords=coords, xdist=True)
+        assert res.sizes == {"chain": 1, "draw": 7, "batch": 2, "city": 3}
+        assert (res.variable >= 0).all()
+
+        with pm.Model(coords=coords) as m:
+            censored_with_mu.create_variable("x", xdist=True)
+            censored_without_mu.create_likelihood_variable(
+                "y", mu=mu, observed=observed, xdist=True
+            )
+
+        with pm.Model(coords=coords) as ref_m:
+            dist = pmd.Normal.dist(mu=mu, sigma=1)
+            pmd.Censored("x", dist=dist, lower=0, dims=dims)
+            pmd.Censored("y", dist=dist, lower=0, observed=observed, dims=dims)
+
+        assert equivalent_models(m, ref_m, strict_dtype=False)
+
 
 @pytest.mark.filterwarnings(
     "ignore:The `pymc.dims` module is experimental and may contain critical bugs"
@@ -1307,3 +1362,43 @@ class TestXDist:
         # This is always invalid
         with pytest.raises(UnsupportedShapeError):
             p.dims = ()
+
+    @pytest.mark.parametrize(
+        "mu",
+        (
+            [10, 20],
+            np.array([10, 20]),
+            pt.as_tensor([10, 20]),
+        ),
+    )
+    def test_implicit_conversion_with_dims(self, mu):
+        # When xdist=True, list/numpy parameters should be converted to DataArray if dims are present
+        p_wo_dims = Prior("Normal", mu=mu, dims=None)
+        p_with_dims = Prior("Normal", mu=mu, dims=("test_dim",))
+
+        coords = {"test_dim": ["a", "b"]}
+        with pm.Model(coords=coords):
+            with pytest.warns(UserWarning, match="Implicit conversion"):
+                res = p_with_dims.create_variable("v", xdist=True)
+                assert res.dims == ("test_dim",)
+
+            with pytest.raises(ValueError, match="Cannot infer dims"):
+                p_wo_dims.create_variable("v", xdist=True)
+
+    def test_core_dims(self):
+        from pymc.dims import ZeroSumNormal
+
+        coords = {"country": range(3), "city": range(4)}
+
+        prior = Prior("ZeroSumNormal", sigma=np.pi, core_dims=("city",), dims=("country", "city"))
+        with pm.Model(coords=coords) as m:
+            prior.create_variable("x", xdist=True)
+
+        with pm.Model(coords=coords) as ref_m:
+            ZeroSumNormal("x", sigma=np.pi, core_dims=("city",), dims=("country", "city"))
+
+        # This fails because SymbolicRandomVariable (which ZeroSumNormal is), doesn't have `__eq__` implemented
+        # assert equivalent_models(m, ref_m)
+        ip = m.initial_point()
+        with pytensor.config.change_flags(mode="FAST_COMPILE"):
+            assert m.compile_logp()(ip) == ref_m.compile_logp()(ip)

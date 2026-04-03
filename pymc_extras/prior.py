@@ -84,32 +84,32 @@ Create a prior with a custom transform function by registering it with
 from __future__ import annotations
 
 import copy
-import typing
+import warnings
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from functools import partial
 from inspect import signature
-from typing import Any, Protocol, TypeAlias, runtime_checkable
+from numbers import Number
+from typing import TYPE_CHECKING, Any, Protocol, TypeAlias, runtime_checkable
 
 import numpy as np
 import pymc as pm
 import pytensor.tensor as pt
-import xarray as xr
 
 from pydantic import InstanceOf, validate_call
 from pydantic.dataclasses import dataclass
 from pymc.distributions.shape_utils import Dims
 from pytensor.graph import Variable
 from pytensor.tensor import TensorVariable
+from xarray import DataArray, Dataset
 
 from pymc_extras.deserialize import deserialize, register_deserialization
 
-if typing.TYPE_CHECKING:
+if TYPE_CHECKING:
     # Lazy import of experimental modules
     from pymc.dims import DimDistribution
     from pytensor.tensor import TensorLike
     from pytensor.xtensor.type import XTensorVariable
-    from xarray import DataArray
 
     XTensorLike: TypeAlias = TensorLike | DataArray
 
@@ -404,7 +404,7 @@ def sample_prior(
     wrap: bool = False,
     xdist: bool = False,
     **sample_prior_predictive_kwargs,
-) -> xr.Dataset:
+) -> Dataset:
     """Sample the prior for an arbitrary VariableFactory.
 
     Parameters
@@ -425,7 +425,7 @@ def sample_prior(
 
     Returns
     -------
-    xr.Dataset
+    Dataset
         The dataset of the prior samples.
 
     Example
@@ -491,6 +491,39 @@ def sample_prior(
         model=model,
         **sample_prior_predictive_kwargs,
     ).prior
+
+
+def _param_value_with_dims(param: str, value, dims: Dims | None):
+    """Infer parameter dims positionally.
+
+    This is a transition helper to guide users into defining DataArray parameters explicitly.
+    """
+    if hasattr(value, "dims"):
+        return value
+
+    if isinstance(value, list | tuple | Number):
+        value = np.asarray(value)
+
+    if value.ndim > 0:
+        if dims is None:
+            raise ValueError(
+                f"Cannot infer dims of array-like parameter {param}. Use DataArray with explicit dims"
+            )
+        else:
+            parameter_dims = dims[::-1][: value.ndim]
+            warnings.warn(
+                f"Implicit conversion of array-like parameter {param} to DataArray with dims {parameter_dims}. "
+                "Use DataArray with explicit dims to avoid this warning",
+                stacklevel=2,
+            )
+            if isinstance(value, Variable):
+                from pytensor.xtensor import as_xtensor
+
+                value = as_xtensor(value, dims=parameter_dims)
+            else:
+                value = DataArray(value, dims=parameter_dims)
+
+    return value
 
 
 class Prior:
@@ -616,6 +649,7 @@ class Prior:
         dims: Dims | None = None,
         centered: bool = True,
         transform: str | None = None,
+        core_dims: Sequence[str] | str | None = (),
         **parameters,
     ) -> None:
         self.distribution = distribution
@@ -623,6 +657,13 @@ class Prior:
         self.dims = dims
         self.centered = centered
         self.transform = transform
+        if core_dims is None:
+            core_dims = ()
+        elif isinstance(core_dims, str):
+            core_dims = (core_dims,)
+        else:
+            core_dims = tuple(core_dims)
+        self.core_dims = core_dims
 
         self._checks()
 
@@ -709,7 +750,7 @@ class Prior:
             int,
             float,
             np.ndarray,
-            xr.DataArray,
+            DataArray,
             VariableFactory,
         )
 
@@ -765,11 +806,11 @@ class Prior:
         """Return a string representation of the prior."""
         param_str = ", ".join([f"{param}={value}" for param, value in self.parameters.items()])
         param_str = "" if not param_str else f", {param_str}"
-
+        core_dims = f", core_dims={self.core_dims}" if self.core_dims else ""
         dim_str = f", dims={_dims_to_str(self.dims)}" if self.dims is not None else ""
         centered_str = f", centered={self.centered}" if not self.centered else ""
         transform_str = f', transform="{self.transform}"' if self.transform else ""
-        return f'Prior("{self.distribution}"{param_str}{dim_str}{centered_str}{transform_str})'
+        return f'Prior("{self.distribution}"{param_str}{core_dims}{dim_str}{centered_str}{transform_str})'
 
     def __repr__(self) -> str:
         """Return a string representation of the prior."""
@@ -777,7 +818,10 @@ class Prior:
 
     def _create_parameter(self, param, value, name, xdist: bool = False):
         if not hasattr(value, "create_variable"):
-            return value
+            if xdist:
+                return _param_value_with_dims(param, value, dims=self.dims)
+            else:
+                return value
 
         child_name = f"{name}_{param}"
         if xdist:
@@ -792,10 +836,12 @@ class Prior:
         }
         if xdist:
             pymc_distribution = _get_pymc_dim_distribution(self.distribution)
+            core_dims_kwargs = {"core_dims": self.core_dims}
         else:
             pymc_distribution = self.pymc_distribution
+            core_dims_kwargs = {}
 
-        return pymc_distribution(name, **parameters, dims=self.dims)
+        return pymc_distribution(name, **parameters, **core_dims_kwargs, dims=self.dims)
 
     def _create_non_centered_variable(
         self, name: str, xdist: bool = False
@@ -803,7 +849,10 @@ class Prior:
         def handle_variable(var_name: str):
             parameter = self.parameters[var_name]
             if not hasattr(parameter, "create_variable"):
-                return parameter
+                if xdist:
+                    return _param_value_with_dims(var_name, parameter, dims=self.dims)
+                else:
+                    return parameter
 
             if xdist:
                 return parameter.create_variable(f"{name}_{var_name}", xdist=True)
@@ -821,14 +870,17 @@ class Prior:
         }
         if xdist:
             pymc_distribution = _get_pymc_dim_distribution(self.distribution)
+            core_dims_kwargs = {"core_dims": self.core_dims}
         else:
             pymc_distribution = self.pymc_distribution
+            core_dims_kwargs = {}
 
         offset = pymc_distribution(
             f"{name}_offset",
             **defaults,
             **other_parameters,
             dims=self.dims,
+            **core_dims_kwargs,
         )
 
         if "mu" in self.parameters:
@@ -999,7 +1051,7 @@ class Prior:
 
                     # Avoid XTensor import warnings, remove this when the warnings are gone
                     elif value.type.__class__.__name__.startswith("XTensor"):
-                        value = xr.DataArray(value.eval(), dims=value.type.dims)
+                        value = DataArray(value.eval(), dims=value.type.dims)
 
                     else:
                         raise ValueError(
@@ -1009,7 +1061,7 @@ class Prior:
                 if isinstance(value, np.ndarray):
                     return value.tolist()
 
-                if isinstance(value, xr.DataArray):
+                if isinstance(value, DataArray):
                     return {
                         "class": "DataArray",
                         "data": value.data.tolist(),
@@ -1165,16 +1217,26 @@ class Prior:
         if not isinstance(other, Prior):
             return False
 
-        try:
-            np.testing.assert_equal(self.parameters, other.parameters)
-        except AssertionError:
+        if set(self.parameters) != set(other.parameters):
             return False
+
+        for key, value in self.parameters.items():
+            other_value = other.parameters[key]
+            if isinstance(value, np.ndarray | tuple | list | Number):
+                if not np.array_equal(value, other_value):
+                    return False
+            elif isinstance(value, DataArray):
+                if not value.equals(other_value):
+                    return False
+            elif not value == other_value:
+                return False
 
         return (
             self.distribution == other.distribution
             and self.dims == other.dims
             and self.centered == other.centered
             and self.transform == other.transform
+            and self.core_dims == other.core_dims
         )
 
     def sample_prior(
@@ -1183,7 +1245,7 @@ class Prior:
         name: str = "variable",
         xdist: bool = False,
         **sample_prior_predictive_kwargs,
-    ) -> xr.Dataset:
+    ) -> Dataset:
         """Sample the prior distribution for the variable.
 
         Parameters
@@ -1198,7 +1260,7 @@ class Prior:
 
         Returns
         -------
-        xr.Dataset
+        Dataset
             The dataset of the prior samples.
 
         Example
@@ -1416,15 +1478,17 @@ class Censored:
     def dims(self, dims) -> None:
         self.distribution.dims = dims
 
-    def create_variable(self, name: str, xdist: bool = False) -> pt.TensorVariable:
+    def create_variable(self, name: str, xdist: bool = False) -> TensorVariable | XTensorVariable:
         """Create censored random variable."""
-        if xdist:
-            raise NotImplementedError("Censored does not support xdist yet")
-
-        dist = self.distribution.create_variable(name)
+        dist = self.distribution.create_variable(name, xdist=xdist)
         _remove_random_variable(var=dist)
+        if xdist:
+            from pymc.dims import Censored
 
-        return pm.Censored(name, dist, lower=self.lower, upper=self.upper, dims=self.dims)
+            censored_constructor = Censored
+        else:
+            censored_constructor = pm.Censored
+        return censored_constructor(name, dist, lower=self.lower, upper=self.upper, dims=self.dims)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert the censored distribution to a dictionary."""
@@ -1460,7 +1524,7 @@ class Censored:
         name: str = "variable",
         xdist: bool = False,
         **sample_prior_predictive_kwargs,
-    ) -> xr.Dataset:
+    ) -> Dataset:
         """Sample the prior distribution for the variable.
 
         Parameters
@@ -1475,7 +1539,7 @@ class Censored:
 
         Returns
         -------
-        xr.Dataset
+        Dataset
             The dataset of the prior samples.
 
         Example
@@ -1527,7 +1591,8 @@ class Censored:
         name: str,
         mu: pt.TensorLike,
         observed: pt.TensorLike,
-    ) -> pt.TensorVariable:
+        xdist: bool = False,
+    ) -> TensorVariable | XTensorVariable:
         """Create observed censored variable.
 
         Will require that the distribution has a `mu` parameter
@@ -1541,10 +1606,12 @@ class Censored:
             The mu parameter for the likelihood.
         observed : pt.TensorLike
             The observed data.
+        xdist: bool, default False
+            Whether to create a variable from pymc.dims or regular pymc distributions
 
         Returns
         -------
-        pt.TensorVariable
+        TensorVariable or XTensorVariable
             The PyMC variable.
 
         Examples
@@ -1577,17 +1644,22 @@ class Censored:
 
         distribution = self.distribution.deepcopy()
         distribution.parameters["mu"] = mu
-
-        dist = distribution.create_variable(name)
+        dist = distribution.create_variable(name, xdist=xdist)
         _remove_random_variable(var=dist)
 
-        return pm.Censored(
+        if xdist:
+            from pymc.dims import Censored
+
+            censored_constructor = Censored
+        else:
+            censored_constructor = pm.Censored
+        return censored_constructor(
             name,
             dist,
-            observed=observed,
             lower=self.lower,
             upper=self.upper,
             dims=self.dims,
+            observed=observed,
         )
 
 
@@ -1665,7 +1737,7 @@ def _is_data_array_type(data: dict) -> bool:
 
 register_deserialization(is_type=_is_prior_type, deserialize=Prior.from_dict)
 register_deserialization(is_type=_is_censored_type, deserialize=Censored.from_dict)
-register_deserialization(is_type=_is_data_array_type, deserialize=xr.DataArray.from_dict)
+register_deserialization(is_type=_is_data_array_type, deserialize=DataArray.from_dict)
 
 
 def __getattr__(name: str):

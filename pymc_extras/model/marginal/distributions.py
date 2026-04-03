@@ -83,43 +83,46 @@ def support_point_marginal_rv(op: MarginalRV, rv, *inputs):
     """
     outputs = rv.owner.outputs
 
-    inner_rv = op.inner_outputs[outputs.index(rv)]
+    fgraph = op.fgraph.clone()
+    inner_inputs = fgraph.inputs
+    inner_outputs = fgraph.outputs
+    del op
+
+    inner_rv = inner_outputs[outputs.index(rv)]
     marginalized_inner_rv, *other_dependent_inner_rvs = (
-        out
-        for out in op.inner_outputs
-        if out is not inner_rv and not isinstance(out.type, RandomType)
+        out for out in inner_outputs if out is not inner_rv and not isinstance(out.type, RandomType)
     )
 
     # Replace references to inner rvs by the dummy variables (including the marginalized RV)
     # This is necessary because the inner RVs may depend on each other
     marginalized_inner_rv_dummy = marginalized_inner_rv.clone()
-    other_dependent_inner_rv_to_dummies = {
-        inner_rv: inner_rv.clone() for inner_rv in other_dependent_inner_rvs
-    }
-    inner_rv = clone_replace(
-        inner_rv,
-        replace={marginalized_inner_rv: marginalized_inner_rv_dummy}
-        | other_dependent_inner_rv_to_dummies,
-    )
+    # Map inner rvs to dummies, saving what outer output each corresponds to.
+    # We need dummies because inner RVs may depend on each other.
+    inner_to_dummy_replacements = []
+    dummy_to_outer_replacements = []
+    for other_inner_rv in other_dependent_inner_rvs:
+        dummy = other_inner_rv.clone()
+        inner_to_dummy_replacements.append((other_inner_rv, dummy))
+        dummy_to_outer_replacements.append((dummy, outputs[inner_outputs.index(other_inner_rv)]))
+
+    fgraph.replace(marginalized_inner_rv, marginalized_inner_rv_dummy, import_missing=True)
+    fgraph.replace_all(tuple(inner_to_dummy_replacements), import_missing=True)
 
     # Get support point of inner RV and marginalized RV
     inner_rv_support_point = support_point(inner_rv)
     marginalized_inner_rv_support_point = support_point(marginalized_inner_rv)
 
-    replacements = [
-        # Replace the marginalized RV dummy by its support point
-        (marginalized_inner_rv_dummy, marginalized_inner_rv_support_point),
-        # Replace other dependent RVs dummies by the respective outer outputs.
-        # PyMC will replace them by their support points later
-        *(
-            (v, outputs[op.inner_outputs.index(k)])
-            for k, v in other_dependent_inner_rv_to_dummies.items()
-        ),
-        # Replace outer input RVs
-        *zip(op.inner_inputs, inputs),
-    ]
     fgraph = FunctionGraph(outputs=[inner_rv_support_point], clone=False)
-    fgraph.replace_all(replacements, import_missing=True)
+    # Replace the marginalized RV dummy by its support point
+    fgraph.replace(
+        marginalized_inner_rv_dummy, marginalized_inner_rv_support_point, import_missing=True
+    )
+    # Replace the inner inputs by the outer inputs
+    fgraph.replace_all(tuple(zip(inner_inputs, inputs)), import_missing=True)
+    # Replace other dependent RVs dummies by the respective outer outputs.
+    # PyMC will replace them by their support points later
+    fgraph.replace_all(tuple(dummy_to_outer_replacements), import_missing=True)
+
     [rv_support_point] = fgraph.outputs
     return rv_support_point
 
@@ -338,19 +341,21 @@ def marginal_hmm_logp(op, values, *inputs, **kwargs):
     # under the initial distribution. This is robust to everything the user can throw at it.
     init_dist_value = init_dist_.type()
     logp_init_dist = logp(init_dist_, init_dist_value)
-    # There is a degerate batch dim for lags=1 (the only supported case),
-    # that we have to work around, by expanding the batch value and then squeezing it out of the logp
+    # Squeeze core dimension for n_lags=1 (only supported case)
     batch_logp_init_dist = vectorize_graph(
-        logp_init_dist, {init_dist_value: batch_chain_value[:, None, ..., 0]}
-    ).squeeze(1)
+        logp_init_dist, {init_dist_value: batch_chain_value[..., :1]}
+    ).squeeze(-1)
     log_alpha_init = batch_logp_init_dist + batch_logp_emissions[..., 0]
 
     def step_alpha(logp_emission, log_alpha, log_P):
-        step_log_prob = pt.logsumexp(log_alpha[:, None] + log_P, axis=0)
+        step_log_prob = pt.logsumexp(log_alpha[:, None, ...] + log_P, axis=0)
         return logp_emission + step_log_prob
 
-    P_bcast_dims = (len(chain_shape) - 1) - (P.type.ndim - 2)
-    log_P = pt.shape_padright(pt.log(P), P_bcast_dims)
+    # Add implicit dimensions of P, and place core dimensions at the front
+    P = pt.atleast_Nd(P, n=len(chain_shape) + 1)
+    P = pt.moveaxis(P, (-2, -1), (0, 1))
+    log_P = pt.log(P)
+
     log_alpha_seq = scan(
         step_alpha,
         non_sequences=[log_P],
