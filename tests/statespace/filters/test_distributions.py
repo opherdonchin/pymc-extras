@@ -80,7 +80,7 @@ def pymc_model_2(data):
 def ss_mod_me():
     ss_mod = structural.LevelTrend(order=2)
     ss_mod += structural.MeasurementError(name="error")
-    ss_mod = ss_mod.build("data", verbose=False)
+    ss_mod = ss_mod.build(verbose=False)
 
     return ss_mod
 
@@ -88,7 +88,7 @@ def ss_mod_me():
 @pytest.fixture(scope="session")
 def ss_mod_no_me():
     ss_mod = structural.LevelTrend(order=2)
-    ss_mod = ss_mod.build("data", verbose=False)
+    ss_mod = ss_mod.build(verbose=False)
 
     return ss_mod
 
@@ -96,7 +96,7 @@ def ss_mod_no_me():
 @pytest.mark.parametrize("kfilter", filter_names)
 def test_loglike_vectors_agree(kfilter, pymc_model):
     # TODO: This test might be flakey, I've gotten random failures
-    ss_mod = structural.LevelTrend(order=2).build("data", verbose=False, filter_type=kfilter)
+    ss_mod = structural.LevelTrend(order=2).build(verbose=False, filter_type=kfilter)
     with pymc_model:
         ss_mod._insert_random_variables()
         matrices = ss_mod.unpack_statespace()
@@ -193,7 +193,7 @@ def test_lgss_with_time_varying_inputs(output_name, rng):
     ss_mod = structural.LevelTrend() + structural.Regression(
         name="exog", state_names=["exog_0", "exog_1", "exog_2"]
     )
-    mod = ss_mod.build("data", verbose=False)
+    mod = ss_mod.build(verbose=False)
 
     coords = {
         ALL_STATE_DIM: ["level", "trend", "beta_1", "beta_2", "beta_3"],
