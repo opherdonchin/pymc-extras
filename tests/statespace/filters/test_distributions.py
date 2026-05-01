@@ -51,9 +51,9 @@ def pymc_model(data):
     with pm.Model() as mod:
         data = pm.Data("data", data.values)
         P0_diag = pm.Exponential("P0_diag", 1, shape=(2,))
-        P0 = pm.Deterministic("P0", pt.diag(P0_diag))
-        initial_trend = pm.Normal("initial_level_trend", shape=(2,))
-        sigma_trend = pm.Exponential("sigma_level_trend", 1, shape=(2,))
+        P0 = pm.Deterministic("data_P0", pt.diag(P0_diag))
+        initial_trend = pm.Normal("data_initial_level_trend", shape=(2,))
+        sigma_trend = pm.Exponential("data_sigma_level_trend", 1, shape=(2,))
 
     return mod
 
@@ -68,10 +68,10 @@ def pymc_model_2(data):
 
     with pm.Model(coords=coords) as mod:
         P0_diag = pm.Exponential("P0_diag", 1, shape=(2,))
-        P0 = pm.Deterministic("P0", pt.diag(P0_diag))
-        initial_trend = pm.Normal("initial_level_trend", shape=(2,))
-        sigma_trend = pm.Exponential("sigma_level_trend", 1, shape=(2,))
-        sigma_me = pm.Exponential("sigma_error", 1)
+        P0 = pm.Deterministic("data_P0", pt.diag(P0_diag))
+        initial_trend = pm.Normal("data_initial_level_trend", shape=(2,))
+        sigma_trend = pm.Exponential("data_sigma_level_trend", 1, shape=(2,))
+        sigma_me = pm.Exponential("data_sigma_error", 1)
 
     return mod
 
@@ -204,10 +204,10 @@ def test_lgss_with_time_varying_inputs(output_name, rng):
     with pm.Model(coords=coords):
         exog_data = pm.Data("data_exog", X)
         P0_diag = pm.Exponential("P0_diag", 1, shape=(mod.k_states,))
-        P0 = pm.Deterministic("P0", pt.diag(P0_diag))
-        initial_trend = pm.Normal("initial_level_trend", shape=(2,))
-        sigma_trend = pm.Exponential("sigma_level_trend", 1, shape=(2,))
-        beta_exog = pm.Normal("beta_exog", shape=(3,))
+        P0 = pm.Deterministic("data_P0", pt.diag(P0_diag))
+        initial_trend = pm.Normal("data_initial_level_trend", shape=(2,))
+        sigma_trend = pm.Exponential("data_sigma_level_trend", 1, shape=(2,))
+        beta_exog = pm.Normal("data_beta_exog", shape=(3,))
 
         mod._insert_random_variables()
         mod._insert_data_variables()

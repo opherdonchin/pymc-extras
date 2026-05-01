@@ -426,8 +426,9 @@ class PyMCStateSpace:
             self._initialize_requirement_table()
 
         for param, info in self.param_info.items():
+            prefixed_param = self.prefixed_name(param)
             self.requirement_table.add_row(
-                param, str(info["shape"]), info["constraints"], str(info["dims"])
+                prefixed_param, str(info["shape"]), info["constraints"], str(info["dims"])
             )
 
     def _populate_data_requirements(self) -> None:
@@ -864,16 +865,18 @@ class PyMCStateSpace:
             for param_name in self.param_names:
                 name = self.prefixed_name(param_name)
                 if name in pymc_model:
-                    found_params.append(param_name)
+                    found_params.append(name)
 
-        missing_params = list(set(self.param_names) - set(found_params))
+        prefixed_params = [self.prefixed_name(param_name) for param_name in self.param_names]
+
+        missing_params = list(set(prefixed_params) - set(found_params))
         if len(missing_params) > 0:
             raise ValueError(
                 "The following required model parameters were not found in the PyMC model: "
                 + ", ".join(missing_params)
             )
 
-        excess_params = list(set(found_params) - set(self.param_names))
+        excess_params = list(set(found_params) - set(prefixed_params))
         if len(excess_params) > 0:
             raise ValueError(
                 "The following parameters were found in the PyMC model but are not required by the statespace model: "
